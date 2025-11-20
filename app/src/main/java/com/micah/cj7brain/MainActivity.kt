@@ -5,19 +5,24 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.micah.cj7brain.ui.theme.Cj7BrainTheme
 import com.spotify.android.appremote.api.ConnectionParams
@@ -26,6 +31,7 @@ import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.PlayerState
 import com.spotify.protocol.types.Track
+import java.net.Socket
 
 
 class MainActivity : ComponentActivity() {
@@ -53,6 +59,7 @@ class MainActivity : ComponentActivity() {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            SocketStatusUI()
                             Text("Song Playing: ${playingTrack?.name}")
                             Button(onClick = {
                                 if (canPlay) {
@@ -70,6 +77,12 @@ class MainActivity : ComponentActivity() {
                                     Text("Pause")
                                 }
                             }
+//                            Image(
+//                                painter = painterResource(id = R.drawable.road_img_background),
+//                                contentDescription = "road_img_test",
+//                                modifier = Modifier.fillMaxSize(),
+//                                contentScale = ContentScale.Crop
+//                            )
                         }
 
                     }
@@ -78,8 +91,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Composable
+    fun SocketStatusUI() {
+        val connected by SocketManager.connectionState.collectAsState();
+        val status = if (connected) "Connected" else "Disconnected"
+
+        Text(
+            text = status,
+            style = MaterialTheme.typography.headlineSmall
+        )
+    }
+
     override fun onStart() {
         super.onStart()
+
+        SocketManager.connect()
+
         val connectionParams = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
             .showAuthView(true)
@@ -132,6 +159,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+
+        SocketManager.disconnect()
+
         canPlay = false
         spotifyAppRemote?.let {
             SpotifyAppRemote.disconnect(it)
