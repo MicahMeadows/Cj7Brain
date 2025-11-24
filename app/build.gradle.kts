@@ -67,7 +67,13 @@ dependencies {
     implementation("io.socket:socket.io-client:2.1.0") {
         exclude(group = "org.json", module = "json")
     }
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.0.21"))
     implementation("com.google.android.libraries.navigation:navigation:6.3.0")
+//    implementation("com.google.android.libraries.places:places:3.5.0")
+    implementation("com.google.android.libraries.places:places:3.5.0") {
+        exclude(group = "com.google.android.gms", module = "play-services-maps")
+    }
+
     implementation("com.google.code.gson:gson:2.10.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

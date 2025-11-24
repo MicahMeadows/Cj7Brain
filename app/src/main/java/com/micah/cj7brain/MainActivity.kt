@@ -36,20 +36,49 @@ import com.google.android.libraries.navigation.NavigationApi
 import com.google.android.libraries.navigation.TermsAndConditionsCheckOption
 
 import android.Manifest
+import android.R
 import android.annotation.SuppressLint
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import com.google.android.libraries.navigation.NavigationApi.*
 import com.google.android.libraries.navigation.Navigator
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.AutocompletePrediction
+import com.google.android.libraries.places.api.net.PlacesClient
+import kotlinx.coroutines.Job
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.ui.unit.dp
+import com.google.android.libraries.navigation.CustomRoutesOptions
+import com.google.android.libraries.navigation.ListenableResultFuture
+import com.google.android.libraries.navigation.RoutingOptions
+import com.google.android.libraries.navigation.SimulationOptions
+import com.google.android.libraries.navigation.Waypoint
+import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     // Track info and player state will come from the service via SocketManager or another shared flow
     private var playingTrack: Track? by mutableStateOf(null)
     private var curPlayerState: PlayerState? by mutableStateOf(null)
+    private var pendingPlaceId: String? = null // store selected place but don't start guidance
+
+    private var placesClient: PlacesClient? = null
+    private var mNavigator: Navigator? = null
+
+
 
     private val locationPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -64,6 +93,30 @@ class MainActivity : FragmentActivity() {
         } else {
             Log.d("Location", "Location permission yes")
         }
+    }
+
+    private fun prepareRoute(placeId: String) {
+        val waypoint = try {
+            Waypoint.builder().setPlaceIdString(placeId).build()
+        } catch (e: Waypoint.UnsupportedPlaceIdException) {
+            showToast("Place ID unsupported.")
+            return
+        }
+
+        // Prepare the route but do NOT start guidance yet
+        val pendingRoute = mNavigator?.setDestination(waypoint)
+        pendingRoute?.setOnResultListener { code ->
+            when (code) {
+                Navigator.RouteStatus.OK -> {
+                    // Route is ready, can now enable the button to start guidance
+                }
+                Navigator.RouteStatus.ROUTE_CANCELED -> showToast("Route canceled.")
+                Navigator.RouteStatus.NO_ROUTE_FOUND, Navigator.RouteStatus.NETWORK_ERROR ->
+                    showToast("Error preparing route: $code")
+                else -> showToast("Error preparing route: $code")
+            }
+        }
+        pendingPlaceId = placeId
     }
 
     private fun checkPermissionGranted(permissionToCheck: String): Boolean =
@@ -81,7 +134,7 @@ class MainActivity : FragmentActivity() {
             object : NavigatorListener {
                 override fun onNavigatorReady(navigator: Navigator) {
                     // store a reference to the Navigator object
-                    val mNavigator = navigator
+                    mNavigator = navigator
                     // code to start guidance will go here
                 }
 
@@ -112,18 +165,25 @@ class MainActivity : FragmentActivity() {
 
 
 
+    private fun initializePlacesApi() {
+        Places.initializeWithNewPlacesApiEnabled(applicationContext, BuildConfig.API_KEY)
+        placesClient = Places.createClient(this)
+    }
+
+
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Start your foreground service to handle Spotify + SocketIO in background
         val serviceIntent = Intent(this, AppLogicService::class.java)
         startForegroundService(serviceIntent)
 
         requestLocationPermissions()
 
         initializeNavigationApi()
+
+        initializePlacesApi()
 
         setContent {
             Cj7BrainTheme {
@@ -142,15 +202,32 @@ class MainActivity : FragmentActivity() {
                             val currentPlayerState by SocketManager.playerState.collectAsState(initial = null)
                             Text("Song Playing: ${currentTrack?.name ?: "None"}")
 
-                            Button(onClick = { SocketManager.playSong() }) {
-                                Text("Play Song")
+//                            Button(onClick = { SocketManager.playSong() }) {
+//                                Text("Play Song")
+//                            }
+//
+//                            Button(onClick = {
+//                                SocketManager.playPause()
+//                            }) {
+//                                if (currentPlayerState?.isPaused == true) Text("Resume") else Text("Pause")
+//                            }
+
+                            placesClient?.let { client ->
+                                PlacesSearchField(
+                                    placesClient = client,
+                                    onPlaceSelected = { placeId ->
+                                        prepareRoute(placeId) // prepares route immediately
+                                    },
+                                    onStartNavigation = {
+                                        pendingPlaceId?.let { placeId ->
+                                            // Actually start guidance now
+                                            mNavigator?.startGuidance()
+                                            showToast("Navigation started!")
+                                        }
+                                    }
+                                )
                             }
 
-                            Button(onClick = {
-                                SocketManager.playPause()
-                            }) {
-                                if (currentPlayerState?.isPaused == true) Text("Resume") else Text("Pause")
-                            }
 
                             NavigationFragmentHost()
                         }
@@ -175,10 +252,40 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private fun navigateToPlace(placeId: String) {
+        val waypoint: Waypoint? =
+            try {
+                Waypoint.builder().setPlaceIdString(placeId).build()
+            } catch (e: Waypoint.UnsupportedPlaceIdException) {
+                showToast("Place ID was unsupported.")
+                return
+            }
+
+        val pendingRoute = mNavigator?.setDestination(waypoint)
+
+        pendingRoute?.setOnResultListener { code ->
+            when (code) {
+                Navigator.RouteStatus.OK -> {
+                    // Code to start guidance will go here
+                }
+
+                Navigator.RouteStatus.ROUTE_CANCELED -> showToast("Route guidance canceled.")
+                Navigator.RouteStatus.NO_ROUTE_FOUND,
+                Navigator.RouteStatus.NETWORK_ERROR ->
+                    // TODO: Add logic to handle when a route could not be determined
+                    showToast("Error starting guidance: $code")
+
+                else -> showToast("Error starting guidance: $code")
+            }
+        }
+
+        mNavigator?.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
+    }
+
     @Composable
     fun SocketStatusUI() {
         val connected by SocketManager.connectionState.collectAsState()
-        val status = if (connected) "Connected" else "Disconnected"
+        val status = "SocketIO: ${if (connected) "Connected" else "Disconnected"}"
         Text(text = status, style = MaterialTheme.typography.headlineSmall)
     }
 
@@ -204,6 +311,88 @@ class MainActivity : FragmentActivity() {
             container
         })
     }
+
+    @Composable
+    fun PlacesSearchField(
+        placesClient: PlacesClient,
+        onPlaceSelected: (placeId: String) -> Unit,
+        onStartNavigation: () -> Unit
+    ) {
+        var query by remember { mutableStateOf("") }
+        var suggestions by remember { mutableStateOf(listOf<AutocompletePrediction>()) }
+        var selectedPlaceId by remember { mutableStateOf<String?>(null) }
+        var selectedPlaceName by remember { mutableStateOf<String?>(null) }
+        val coroutineScope = rememberCoroutineScope()
+        var searchJob: Job? by remember { mutableStateOf(null) }
+
+        Column(modifier = Modifier.padding(16.dp)) {
+            TextField(
+                value = query,
+                onValueChange = {
+                    query = it
+
+                    searchJob?.cancel()
+                    searchJob = coroutineScope.launch {
+                        delay(300)
+                        if (query.isNotEmpty()) {
+                            val request = FindAutocompletePredictionsRequest.builder()
+                                .setQuery(query)
+                                .build()
+
+                            placesClient.findAutocompletePredictions(request)
+                                .addOnSuccessListener { result ->
+                                    suggestions = result.autocompletePredictions
+                                }
+                                .addOnFailureListener {
+                                    suggestions = emptyList()
+                                }
+                        } else {
+                            suggestions = emptyList()
+                        }
+                    }
+                },
+                label = { Text("Search places") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn {
+                items(suggestions) { suggestion ->
+                    Text(
+                        text = suggestion.getFullText(null).toString(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val placeName = suggestion.getFullText(null).toString()
+                                query = placeName
+                                selectedPlaceId = suggestion.placeId
+                                selectedPlaceName = placeName
+                                suggestions = emptyList()
+
+                                // Prepare the route immediately
+                                onPlaceSelected(suggestion.placeId)
+                            }
+                            .padding(8.dp)
+                    )
+                    Divider()
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Show Start Directions button if a place is selected
+            selectedPlaceId?.let {
+                Button(
+                    onClick = onStartNavigation,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Start Directions to ${selectedPlaceName ?: "Selected Place"}")
+                }
+            }
+        }
+    }
+
 
 
 }
