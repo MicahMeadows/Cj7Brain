@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.micah.cj7brain.api.MapTilesApiClient
 import com.micah.cj7brain.api.fromLatLngToTileCoord
+import kotlinx.coroutines.flow.map
 
 class MainActivity : FragmentActivity() {
     private var pendingPlaceId: String? = null // store selected place but don't start guidance
@@ -135,7 +136,7 @@ class MainActivity : FragmentActivity() {
 
     /** Starts the Navigation API, capturing a reference when ready. */
     @SuppressLint("MissingPermission")
-    private fun initializeNavigationApi() {
+    private fun  initializeNavigationApi() {
         getNavigator(
             this,
             object : NavigatorListener {
@@ -236,7 +237,7 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
 
-                            // MapTileImage()
+                            MapTileImage()
 
                             NavigationFragmentHost()
                         }
@@ -270,26 +271,14 @@ class MainActivity : FragmentActivity() {
 
     @Composable
     fun MapTileImage() {
-        var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-        val sessionReady by MapTilesApiClient.sessionCreated.collectAsState()
-
-        LaunchedEffect(sessionReady) {
-            if (sessionReady) {
-                val tileCoords = fromLatLngToTileCoord(MapTilesApiClient.currentLat, MapTilesApiClient.currentLong, 18)
-                val x = tileCoords["x"]!!
-                val y = tileCoords["y"]!!
-                val tileBytes = MapTilesApiClient.fetchTile(x, y, 18)
-                // TODO: this currently just converts the location to a tile coord and query it. instead we should eventually constantly check and query and generate the tiels and surrounding and just send them off over socketio
-                bitmap = tileBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-            }
-        }
+        val bitmap by MapTilesApiClient.currentTile
+            .map { it?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size) } }
+            .collectAsState(initial = null)
 
         bitmap?.let {
             Image(
                 bitmap = it.asImageBitmap(),
                 contentDescription = "Map Tile",
-//                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         }

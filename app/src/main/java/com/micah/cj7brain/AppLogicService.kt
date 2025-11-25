@@ -71,12 +71,15 @@ class AppLogicService : Service() {
             override fun onLocationChanged(newLocation: Location?) {
                 Log.d("Location", "New location update: ${newLocation.toString()}")
                 // TODO: update new location update to socketio
+                newLocation?.let {
+                    SocketManager.updateLocation(newLocation.latitude, newLocation.longitude)
+                }
             }
 
             override fun onRawLocationUpdate(newLocation: Location) {
                 Log.d("Location", "Raw location update: ${newLocation.toString()}")
                 // TODO: update raw location update to socketio
-                MapTilesApiClient.setCoordinates(newLocation.latitude, newLocation.longitude)
+                // MapTilesApiClient.setCoordinates(newLocation.latitude, newLocation.longitude)
             }
         })
 

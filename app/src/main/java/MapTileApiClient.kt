@@ -3,6 +3,7 @@ package com.micah.cj7brain.api
 import android.R
 import android.content.Context
 import android.util.Log
+import com.micah.cj7brain.SocketManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -47,9 +48,12 @@ object MapTilesApiClient {
 
     public var currentTileX: Int = 0
     public var currentTileY: Int = 0
-    const val ZOOM_LEVEL: Int = 18
+    const val ZOOM_LEVEL: Int = 17
+    private var testOffset = 0
 
-    private var currentTile: ByteArray? = null
+    private val _currentTile = MutableStateFlow<ByteArray?>(null)
+    val currentTile: StateFlow<ByteArray?> = _currentTile
+
 
     /** Must be called before using the API client */
     fun init(context: Context, apiKey: String) {
@@ -57,11 +61,35 @@ object MapTilesApiClient {
         this.apiKey = apiKey
     }
 
+    fun updateTile(tileBytes: ByteArray) {
+        _currentTile.value = tileBytes
+        emitTileData()
+    }
+
+    fun emitTileData() {
+        if (_currentTile.value != null) {
+            SocketManager.broadcastTileImage(currentTileX, currentTileY, ZOOM_LEVEL, _currentTile.value!!)
+        }
+    }
+
+    fun getTile(x: Int, y: Int, zoom: Int) {
+        Log.d("MapTilesApi", "Getting tile ($x, $y - z: $zoom) from api")
+        CoroutineScope(Dispatchers.IO).launch {
+            val newTile = fetchTile(x, y, zoom)
+            newTile?.let {
+                Log.d("MapTilesApi", "newTile retrieved. broadcasting tile")
+                SocketManager.broadcastTileImage(x, y, zoom, newTile)
+            }
+        }
+    }
+
     private fun checkTileChange() {
         if (!sessionCreated.value) return
+//        testOffset += 1
+//        if (testOffset % 7 != 0) return // HACK: only update tile every 10 test offset to not spam api
 
         val tileCoords = fromLatLngToTileCoord(currentLat, currentLong, ZOOM_LEVEL)
-        val newX = tileCoords["x"]!!
+        val newX = tileCoords["x"]!! + testOffset
         val newY = tileCoords["y"]!!
         val xChanged = newX != currentTileX || currentTileX == 0
         val yChanged = newY != currentTileY || currentTileY == 0
@@ -77,10 +105,11 @@ object MapTilesApiClient {
                     withContext(Dispatchers.Main) {
                         // update your ImageView/Bitmap here
                         Log.d("Tile", "tile changed setting tile for: ($currentTileX, $currentTileY)")
-                        currentTile = newTile
+                        updateTile(newTile)
                     }
                 }
-            }        }
+            }
+        }
     }
 
     /** ------------------------ SESSION HANDLING ------------------------ */

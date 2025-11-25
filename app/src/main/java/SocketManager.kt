@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import android.util.Base64
+import com.micah.cj7brain.api.MapTilesApiClient
+import org.json.JSONObject
 
 object SocketManager {
 
@@ -43,9 +45,8 @@ object SocketManager {
         if (socket?.connected() == true) return
 
         val opts = IO.Options()
-//        socket = IO.socket("http://192.168.44.162:5000", opts)
-        socket = IO.socket("http://raspberrypi.local:5000", opts)
-
+        socket = IO.socket("http://192.168.1.113:8089", opts)
+//        socket = IO.socket("http://raspberrypi.local:5000", opts)
 
         socket?.on(Socket.EVENT_CONNECT) {
             Log.d("SocketIO", "Connected")
@@ -61,6 +62,20 @@ object SocketManager {
         }
         socket?.on("phone_skip_song") {
             spotifyAppRemote?.playerApi?.skipNext()
+        }
+
+        socket?.on("android_request_tile") { args ->
+            if (args.isNotEmpty()) {
+                val json = args[0] as? JSONObject
+                json?.let {
+                    val x = it.optInt("x", 0)
+                    val y = it.optInt("y", 0)
+                    val zoom = it.optInt("zoom", 0)
+
+                    Log.d("SocketIO", "Getting tile at x=$x, y=$y, zoom=$zoom")
+                    MapTilesApiClient.getTile(x, y, zoom)
+                } ?: Log.w("SocketIO", "Tile request payload is null or not a JSONObject")
+            }
         }
 
         Log.d("SocketIO", "Connecting...")
@@ -94,6 +109,25 @@ object SocketManager {
                 socket?.emit("album_image", bitmapData)
             }
         }
+    }
+
+    fun updateLocation(lat: Double, long: Double) {
+        socket?.emit("location_update", JSONObject().apply {
+            put("lat", lat)
+            put("long", long)
+        })
+    }
+
+    fun broadcastTileImage(x: Int, y: Int, zoom: Int, tileImage: ByteArray) {
+        Log.d("SocketIO", "Broadcasting tile image - ($x,$y) zoom: $zoom")
+        val base64 = Base64.encodeToString(tileImage, Base64.NO_WRAP)
+        val payload = JSONObject().apply {
+            put("x", x)
+            put("y", y)
+            put("zoom", zoom)
+            put("image", base64)
+        }
+        socket?.emit("tile_data", payload)
     }
 
     /** --- Spotify --- */
