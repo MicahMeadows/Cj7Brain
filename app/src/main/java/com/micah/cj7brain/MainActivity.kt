@@ -41,6 +41,9 @@ import android.annotation.SuppressLint
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.location.Location
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -62,23 +65,27 @@ import androidx.compose.material3.*
 import androidx.compose.ui.unit.dp
 import com.google.android.libraries.navigation.CustomRoutesOptions
 import com.google.android.libraries.navigation.ListenableResultFuture
+import com.google.android.libraries.navigation.RoadSnappedLocationProvider
 import com.google.android.libraries.navigation.RoutingOptions
 import com.google.android.libraries.navigation.SimulationOptions
 import com.google.android.libraries.navigation.Waypoint
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.jvm.java
+
+import androidx.compose.runtime.*
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.micah.cj7brain.api.MapTilesApiClient
+import com.micah.cj7brain.api.fromLatLngToTileCoord
 
 class MainActivity : FragmentActivity() {
-    // Track info and player state will come from the service via SocketManager or another shared flow
-    private var playingTrack: Track? by mutableStateOf(null)
-    private var curPlayerState: PlayerState? by mutableStateOf(null)
     private var pendingPlaceId: String? = null // store selected place but don't start guidance
 
     private var placesClient: PlacesClient? = null
     private var mNavigator: Navigator? = null
-
-
 
     private val locationPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -135,7 +142,11 @@ class MainActivity : FragmentActivity() {
                 override fun onNavigatorReady(navigator: Navigator) {
                     // store a reference to the Navigator object
                     mNavigator = navigator
-                    // code to start guidance will go here
+                    val isNavInfoReceivingServiceRegistered = navigator.registerServiceForNavUpdates(
+                        packageName,
+                        AppLogicService::class.java.name,
+                        2
+                    )                    // code to start guidance will go here
                 }
 
                 override fun onError(@ErrorCode errorCode: Int) {
@@ -160,10 +171,7 @@ class MainActivity : FragmentActivity() {
                 }
             },
         )
-
     }
-
-
 
     private fun initializePlacesApi() {
         Places.initializeWithNewPlacesApiEnabled(applicationContext, BuildConfig.API_KEY)
@@ -228,6 +236,7 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
 
+                            // MapTileImage()
 
                             NavigationFragmentHost()
                         }
@@ -252,42 +261,40 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun navigateToPlace(placeId: String) {
-        val waypoint: Waypoint? =
-            try {
-                Waypoint.builder().setPlaceIdString(placeId).build()
-            } catch (e: Waypoint.UnsupportedPlaceIdException) {
-                showToast("Place ID was unsupported.")
-                return
-            }
-
-        val pendingRoute = mNavigator?.setDestination(waypoint)
-
-        pendingRoute?.setOnResultListener { code ->
-            when (code) {
-                Navigator.RouteStatus.OK -> {
-                    // Code to start guidance will go here
-                }
-
-                Navigator.RouteStatus.ROUTE_CANCELED -> showToast("Route guidance canceled.")
-                Navigator.RouteStatus.NO_ROUTE_FOUND,
-                Navigator.RouteStatus.NETWORK_ERROR ->
-                    // TODO: Add logic to handle when a route could not be determined
-                    showToast("Error starting guidance: $code")
-
-                else -> showToast("Error starting guidance: $code")
-            }
-        }
-
-        mNavigator?.setAudioGuidance(Navigator.AudioGuidance.VOICE_ALERTS_AND_GUIDANCE)
-    }
-
     @Composable
     fun SocketStatusUI() {
         val connected by SocketManager.connectionState.collectAsState()
         val status = "SocketIO: ${if (connected) "Connected" else "Disconnected"}"
         Text(text = status, style = MaterialTheme.typography.headlineSmall)
     }
+
+    @Composable
+    fun MapTileImage() {
+        var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+        val sessionReady by MapTilesApiClient.sessionCreated.collectAsState()
+
+        LaunchedEffect(sessionReady) {
+            if (sessionReady) {
+                val tileCoords = fromLatLngToTileCoord(MapTilesApiClient.currentLat, MapTilesApiClient.currentLong, 18)
+                val x = tileCoords["x"]!!
+                val y = tileCoords["y"]!!
+                val tileBytes = MapTilesApiClient.fetchTile(x, y, 18)
+                // TODO: this currently just converts the location to a tile coord and query it. instead we should eventually constantly check and query and generate the tiels and surrounding and just send them off over socketio
+                bitmap = tileBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            }
+        }
+
+        bitmap?.let {
+            Image(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "Map Tile",
+//                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+
 
     @Composable
     fun NavigationFragmentHost() {
