@@ -25,9 +25,10 @@ import com.spotify.protocol.types.PlayerState
 import com.spotify.protocol.types.Track
 import android.os.*
 import com.google.android.libraries.navigation.NavigationApi
-import com.google.android.libraries.navigation.RoadSnappedLocationProvider
+import com.google.android.libraries.navigation.Navigator
 import com.micah.cj7brain.api.MapTilesApiClient
 import com.micah.cj7brain.api.MapTilesApiClient.createSession
+import com.micah.cj7brain.api.NavigatorManager
 import com.micah.cj7brain.api.fromLatLngToTileCoord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,25 +64,11 @@ class AppLogicService : Service() {
         startSocket()
         connectSpotify()
 
-        val mRoadSnappedLocationProvider = NavigationApi.getRoadSnappedLocationProvider(application)
+        NavigatorManager.initializeNavigationApi(this)
 
+        // NavigatorManager.setupLocationListener(application)
         setupMapTileApiClient()
 
-        mRoadSnappedLocationProvider?.addLocationListener(object : RoadSnappedLocationProvider.LocationListener {
-            override fun onLocationChanged(newLocation: Location?) {
-                Log.d("Location", "New location update: ${newLocation.toString()}")
-                // TODO: update new location update to socketio
-                newLocation?.let {
-                    SocketManager.updateLocation(newLocation.latitude, newLocation.longitude)
-                }
-            }
-
-            override fun onRawLocationUpdate(newLocation: Location) {
-                Log.d("Location", "Raw location update: ${newLocation.toString()}")
-                // TODO: update raw location update to socketio
-                // MapTilesApiClient.setCoordinates(newLocation.latitude, newLocation.longitude)
-            }
-        })
 
         turnByTurnManager = TurnByTurnManager.createInstance()
         val thread = HandlerThread(
@@ -132,8 +119,6 @@ class AppLogicService : Service() {
 
                 // TODO: from here we cant send this turn by turn details over the socketio connection so the
                 // backend can receive and send it to the frontend. this will happen like every second
-
-
 
                 // Do something with navInfo
             } else {

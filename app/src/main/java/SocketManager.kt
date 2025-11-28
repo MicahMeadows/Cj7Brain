@@ -15,8 +15,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import android.util.Base64
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.libraries.navigation.RouteSegment
 import com.micah.cj7brain.api.MapTilesApiClient
 import org.json.JSONObject
+import com.google.gson.Gson
+
+data class LatLongDTO(
+    val latitude: Double,
+    val longitude: Double
+)
 
 object SocketManager {
 
@@ -45,7 +53,7 @@ object SocketManager {
         if (socket?.connected() == true) return
 
         val opts = IO.Options()
-        socket = IO.socket("http://192.168.1.113:8089", opts)
+        socket = IO.socket("http://192.168.1.215:8089", opts)
 //        socket = IO.socket("http://raspberrypi.local:5000", opts)
 
         socket?.on(Socket.EVENT_CONNECT) {
@@ -85,6 +93,37 @@ object SocketManager {
     fun disconnect() {
         socket?.disconnect()
         _connectionState.value = false
+    }
+
+    fun broadcastTimeAndDistance(meters: Int, seconds: Int) {
+        Log.d("SocketIO", "broadcasting time and distance: meters -${meters} - seconds: ${seconds}")
+        scope.launch {
+            if (socket?.connected() == true) {
+                socket?.emit("time_and_distance", JSONObject().apply {
+                    put("meters", meters)
+                    put("seconds", seconds)
+                })            }
+        }
+    }
+
+    fun broadcastRouteSegments(segments: List<RouteSegment>) {
+        scope.launch {
+            if (socket?.connected() == true) {
+
+                val segmentList: List<List<LatLongDTO>> = segments.map { segment: RouteSegment ->
+                    segment.latLngs.map { latLng: LatLng ->
+                        LatLongDTO(latLng.latitude, latLng.longitude)
+                    }
+                }
+
+                // Serialize list-of-lists to JSON
+                val jsonPayload = Gson().toJson(segmentList)
+
+                // Emit through socket.io
+                Log.d("SocketIO", "emitting route segments")
+                socket?.emit("route_segments", jsonPayload)
+            }
+        }
     }
 
     fun updateSpotifyState(playerState: PlayerState) {

@@ -79,11 +79,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.micah.cj7brain.api.MapTilesApiClient
+import com.micah.cj7brain.api.NavigatorManager
 import com.micah.cj7brain.api.fromLatLngToTileCoord
 import kotlinx.coroutines.flow.map
 
 class MainActivity : FragmentActivity() {
-    private var pendingPlaceId: String? = null // store selected place but don't start guidance
 
     private var placesClient: PlacesClient? = null
     private var mNavigator: Navigator? = null
@@ -103,77 +103,6 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun prepareRoute(placeId: String) {
-        val waypoint = try {
-            Waypoint.builder().setPlaceIdString(placeId).build()
-        } catch (e: Waypoint.UnsupportedPlaceIdException) {
-            showToast("Place ID unsupported.")
-            return
-        }
-
-        // Prepare the route but do NOT start guidance yet
-        val pendingRoute = mNavigator?.setDestination(waypoint)
-        pendingRoute?.setOnResultListener { code ->
-            when (code) {
-                Navigator.RouteStatus.OK -> {
-                    // Route is ready, can now enable the button to start guidance
-                }
-                Navigator.RouteStatus.ROUTE_CANCELED -> showToast("Route canceled.")
-                Navigator.RouteStatus.NO_ROUTE_FOUND, Navigator.RouteStatus.NETWORK_ERROR ->
-                    showToast("Error preparing route: $code")
-                else -> showToast("Error preparing route: $code")
-            }
-        }
-        pendingPlaceId = placeId
-    }
-
-    private fun checkPermissionGranted(permissionToCheck: String): Boolean =
-        ContextCompat.checkSelfPermission(this, permissionToCheck) == PackageManager.PERMISSION_GRANTED
-
-    private fun showToast(errorMessage: String) {
-        Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
-    }
-
-    /** Starts the Navigation API, capturing a reference when ready. */
-    @SuppressLint("MissingPermission")
-    private fun  initializeNavigationApi() {
-        getNavigator(
-            this,
-            object : NavigatorListener {
-                override fun onNavigatorReady(navigator: Navigator) {
-                    // store a reference to the Navigator object
-                    mNavigator = navigator
-                    val isNavInfoReceivingServiceRegistered = navigator.registerServiceForNavUpdates(
-                        packageName,
-                        AppLogicService::class.java.name,
-                        2
-                    )                    // code to start guidance will go here
-                }
-
-                override fun onError(@ErrorCode errorCode: Int) {
-                    when (errorCode) {
-                        ErrorCode.NOT_AUTHORIZED -> {
-                            // Note: If this message is displayed, you may need to check that
-                            // your API_KEY is specified correctly in AndroidManifest.xml
-                            // and is been enabled to access the Navigation API
-                            showToast(
-                                "Error loading Navigation API: Your API key is " +
-                                        "invalid or not authorized to use Navigation."
-                            )
-                        }
-                        ErrorCode.TERMS_NOT_ACCEPTED -> {
-                            showToast(
-                                "Error loading Navigation API: User did not " +
-                                        "accept the Navigation Terms of Use."
-                            )
-                        }
-                        else -> showToast("Error loading Navigation API: $errorCode")
-                    }
-                }
-            },
-        )
-    }
-
     private fun initializePlacesApi() {
         Places.initializeWithNewPlacesApiEnabled(applicationContext, BuildConfig.API_KEY)
         placesClient = Places.createClient(this)
@@ -189,8 +118,6 @@ class MainActivity : FragmentActivity() {
         startForegroundService(serviceIntent)
 
         requestLocationPermissions()
-
-        initializeNavigationApi()
 
         initializePlacesApi()
 
@@ -225,13 +152,13 @@ class MainActivity : FragmentActivity() {
                                 PlacesSearchField(
                                     placesClient = client,
                                     onPlaceSelected = { placeId ->
-                                        prepareRoute(placeId) // prepares route immediately
+                                        NavigatorManager.prepareRoute(placeId) // prepares route immediately
                                     },
                                     onStartNavigation = {
-                                        pendingPlaceId?.let { placeId ->
+                                        NavigatorManager.pendingPlaceId?.let { placeId ->
                                             // Actually start guidance now
-                                            mNavigator?.startGuidance()
-                                            showToast("Navigation started!")
+                                            NavigatorManager.startNavigation()
+                                            Log.d("Navigation", "Google maps navigation started!")
                                         }
                                     }
                                 )

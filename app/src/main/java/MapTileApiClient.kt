@@ -48,7 +48,7 @@ object MapTilesApiClient {
 
     public var currentTileX: Int = 0
     public var currentTileY: Int = 0
-    const val ZOOM_LEVEL: Int = 17
+    const val ZOOM_LEVEL: Int = 18
     private var testOffset = 0
 
     private val _currentTile = MutableStateFlow<ByteArray?>(null)
