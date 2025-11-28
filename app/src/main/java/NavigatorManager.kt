@@ -49,7 +49,7 @@ object NavigatorManager {
                 Log.d("Location", "New location update: ${newLocation.toString()}")
                 // TODO: update new location update to socketio
                 newLocation?.let {
-                    SocketManager.updateLocation(newLocation.latitude, newLocation.longitude)
+                    SocketManager.updateLocation(newLocation.latitude, newLocation.longitude, newLocation.bearing)
                 }
             }
 

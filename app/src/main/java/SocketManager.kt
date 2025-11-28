@@ -150,10 +150,11 @@ object SocketManager {
         }
     }
 
-    fun updateLocation(lat: Double, long: Double) {
+    fun updateLocation(lat: Double, long: Double, bearing: Float) {
         socket?.emit("location_update", JSONObject().apply {
             put("lat", lat)
             put("long", long)
+            put("bearing", bearing)
         })
     }
 
