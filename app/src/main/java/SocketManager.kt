@@ -16,10 +16,12 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import android.util.Base64
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.libraries.mapsplatform.turnbyturn.model.Maneuver
 import com.google.android.libraries.navigation.RouteSegment
 import com.micah.cj7brain.api.MapTilesApiClient
 import org.json.JSONObject
 import com.google.gson.Gson
+import com.micah.cj7brain.api.NavigatorManager
 
 data class LatLongDTO(
     val latitude: Double,
@@ -53,7 +55,7 @@ object SocketManager {
         if (socket?.connected() == true) return
 
         val opts = IO.Options()
-        socket = IO.socket("http://192.168.1.215:8089", opts)
+        socket = IO.socket("http://${BuildConfig.BACKEND_IP}:8089", opts)
 //        socket = IO.socket("http://raspberrypi.local:5000", opts)
 
         socket?.on(Socket.EVENT_CONNECT) {
@@ -70,6 +72,10 @@ object SocketManager {
         }
         socket?.on("phone_skip_song") {
             spotifyAppRemote?.playerApi?.skipNext()
+        }
+
+        socket?.on("android_reload_page") {
+            NavigatorManager.handlePageReload()
         }
 
         socket?.on("android_request_tile") { args ->
@@ -106,11 +112,29 @@ object SocketManager {
         }
     }
 
+    fun broadcastTurnByTurnEvent(road: String?, maneuver: Int?, instruct: String?, side: Int?, meters: Int?, seconds: Int?, step: Int?, exit: String?) {
+        Log.d("SocketIO", "Emitting turn by turn event.")
+        scope.launch {
+            if (socket?.connected() == true) {
+                socket?.emit("turn_by_turn", JSONObject().apply {
+                    put("road", road)
+                    put("maneuver", maneuver)
+                    put("side", side)
+                    put("meters", meters)
+                    put("seconds", seconds)
+                    put("step", step)
+                    put("exit", exit)
+                })
+            }
+        }
+    }
+
     fun broadcastRouteSegments(segments: List<RouteSegment>) {
         scope.launch {
             if (socket?.connected() == true) {
 
                 val segmentList: List<List<LatLongDTO>> = segments.map { segment: RouteSegment ->
+
                     segment.latLngs.map { latLng: LatLng ->
                         LatLongDTO(latLng.latitude, latLng.longitude)
                     }
@@ -150,11 +174,12 @@ object SocketManager {
         }
     }
 
-    fun updateLocation(lat: Double, long: Double, bearing: Float) {
+    fun updateLocation(lat: Double, long: Double, bearing: Float, speed: Float) {
         socket?.emit("location_update", JSONObject().apply {
             put("lat", lat)
             put("long", long)
             put("bearing", bearing)
+            put("speed", speed)
         })
     }
 

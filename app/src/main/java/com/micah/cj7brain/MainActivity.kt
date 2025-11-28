@@ -86,7 +86,6 @@ import kotlinx.coroutines.flow.map
 class MainActivity : FragmentActivity() {
 
     private var placesClient: PlacesClient? = null
-    private var mNavigator: Navigator? = null
 
     private val locationPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

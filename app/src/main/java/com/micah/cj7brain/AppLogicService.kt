@@ -33,6 +33,7 @@ import com.micah.cj7brain.api.fromLatLngToTileCoord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.concurrent.thread
 
 class AppLogicService : Service() {
 
@@ -40,8 +41,6 @@ class AppLogicService : Service() {
     private val redirectUri = "your.app://callback"
     private var spotifyAppRemote: SpotifyAppRemote? = null
 
-    private lateinit var incomingMessenger: Messenger
-    private lateinit var turnByTurnManager: TurnByTurnManager
 
     private fun setupMapTileApiClient() {
         MapTilesApiClient.init(this, BuildConfig.API_KEY)
@@ -66,18 +65,9 @@ class AppLogicService : Service() {
 
         NavigatorManager.initializeNavigationApi(this)
 
-        // NavigatorManager.setupLocationListener(application)
         setupMapTileApiClient()
 
-
-        turnByTurnManager = TurnByTurnManager.createInstance()
-        val thread = HandlerThread(
-            "NavInfoReceivingService",
-            Process.THREAD_PRIORITY_DEFAULT
-
-        )
-        thread.start()
-        incomingMessenger = Messenger(IncomingNavStepHandler(thread.looper))
+        NavigatorManager.setupTurnByTurnThread()
     }
 
     private fun startForegroundService() {
@@ -103,32 +93,11 @@ class AppLogicService : Service() {
         startForeground(1, notification)
     }
 
-    private inner class IncomingNavStepHandler(looper: Looper) : Handler(looper) {
-        override fun handleMessage(msg: Message) {
-            if (msg.what == TurnByTurnManager.MSG_NAV_INFO) {
-                val navInfo: NavInfo? = turnByTurnManager.readNavInfoFromBundle(msg.data)
-                Log.d("TurnByTurn", "road: ${navInfo?.currentStep?.fullRoadName}")
-                Log.d("TurnByTurn", "manuever: ${navInfo?.currentStep?.maneuver}")
-                Log.d("TurnByTurn", "instruct: ${navInfo?.currentStep?.fullInstructionText}")
-                Log.d("TurnByTurn", "side: ${navInfo?.currentStep?.drivingSide}")
-                Log.d("TurnByTurn", "dist: ${navInfo?.currentStep?.distanceFromPrevStepMeters}")
-                Log.d("TurnByTurn", "time: ${navInfo?.currentStep?.timeFromPrevStepSeconds}")
-                Log.d("TurnByTurn", "step: ${navInfo?.currentStep?.stepNumber}")
-                Log.d("TurnByTurn", "exit: ${navInfo?.currentStep?.exitNumber}")
-                Log.d("TurnByTurn", "=================================================")
 
-                // TODO: from here we cant send this turn by turn details over the socketio connection so the
-                // backend can receive and send it to the frontend. this will happen like every second
-
-                // Do something with navInfo
-            } else {
-                super.handleMessage(msg)
-            }
-        }
-    }
 
     override fun onBind(intent: Intent?): IBinder? {
-        return incomingMessenger.binder
+//        return NavigatorManager.getIncomingMessenger().binder
+        return NavigatorManager.incomingMessenger.binder
     }
 
     private fun startSocket() {

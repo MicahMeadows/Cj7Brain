@@ -26,11 +26,18 @@ android {
         properties.load(keystoreFile.inputStream())
 
         val apiKey = properties.getProperty("API_KEY") ?: ""
+        val backendIp = properties.getProperty("BACKEND_IP") ?: ""
 
         buildConfigField(
             type = "String",
             name = "API_KEY",
             value = "\"${apiKey}\""
+        )
+
+        buildConfigField(
+            type = "String",
+            name = "BACKEND_IP",
+            value = "\"${backendIp}\""
         )
 
         manifestPlaceholders["API_KEY"] = apiKey
