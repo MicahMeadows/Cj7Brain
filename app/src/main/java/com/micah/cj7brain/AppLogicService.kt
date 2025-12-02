@@ -1,13 +1,17 @@
 package com.micah.cj7brain
 
+import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.location.Location
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -35,6 +39,7 @@ import com.micah.cj7brain.api.fromLatLngToTileCoord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.net.Socket
 import kotlin.concurrent.thread
 
 class AppLogicService : Service() {
@@ -43,7 +48,11 @@ class AppLogicService : Service() {
     private val redirectUri = "your.app://callback"
     private var spotifyAppRemote: SpotifyAppRemote? = null
 
+    private lateinit var audioManager: AudioManager
+    private lateinit var volumeReceiver: BroadcastReceiver
+
     private val spotifyReconnectHandler = Handler(Looper.getMainLooper())
+    private val batteryCheckHandler = Handler(Looper.getMainLooper())
     private val reconnectRunnable = object : Runnable {
         override fun run() {
             // Always try to connect if null or disconnected
@@ -55,6 +64,16 @@ class AppLogicService : Service() {
             }
             // Schedule next attempt in 1 minute, always
             spotifyReconnectHandler.postDelayed(this, 60_000)
+        }
+    }
+
+    private val batteryCheckRunnable = object : Runnable {
+        override fun run() {
+            Log.d("AppLogic", "checking battery")
+
+            checkBattery()
+
+            batteryCheckHandler.postDelayed(this, 60_000)
         }
     }
 
@@ -74,12 +93,49 @@ class AppLogicService : Service() {
         }
     }
 
+    private fun checkBattery() {
+        val bm = applicationContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batteryVal = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        SocketManager.emitBatteryLevel(batteryVal)
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private fun setupVolumeReceiver() {
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // Initial volume
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        println("Current volume: $currentVolume")
+        SocketManager.volumeChanged(currentVolume)
+
+        // Create BroadcastReceiver to listen for volume changes
+        volumeReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
+                    val newVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    Log.d("AppService", "volume changed: $newVolume")
+                    SocketManager.volumeChanged(newVolume)
+                }
+            }
+        }
+
+        // Register receiver
+        val filter = IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+        registerReceiver(volumeReceiver, filter)
+    }
+
     override fun onCreate() {
         super.onCreate()
         startForegroundService()
         startSocket()
+
+        setupVolumeReceiver()
         connectSpotify()
-        spotifyReconnectHandler.postDelayed(reconnectRunnable, 10_000)
+
+        checkBattery()
+
+        spotifyReconnectHandler.postDelayed(reconnectRunnable, 60_000)
+        batteryCheckHandler.postDelayed(batteryCheckRunnable, 60_000)
 
         NavigatorManager.initializeNavigationApi(this)
 
@@ -161,6 +217,7 @@ class AppLogicService : Service() {
         spotifyAppRemote?.let { SpotifyAppRemote.disconnect(it) }
         spotifyReconnectHandler.removeCallbacks(reconnectRunnable)
         SocketManager.disconnect()
+        unregisterReceiver(volumeReceiver)
     }
 
     // override fun onBind(intent: Intent?): IBinder? = null

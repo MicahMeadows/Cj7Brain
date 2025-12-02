@@ -127,12 +127,17 @@ class MainActivity : FragmentActivity() {
                                     onPlaceSelected = { placeId ->
                                         NavigatorManager.prepareRoute(placeId) // prepares route immediately
                                     },
-                                    onStartNavigation = {
-                                        NavigatorManager.pendingPlaceId?.let { placeId ->
-                                            // Actually start guidance now
-                                            NavigatorManager.startNavigation()
-                                            Log.d("Navigation", "Google maps navigation started!")
+                                    onTapButton = { navRunning ->
+                                        if (navRunning) {
+                                            NavigatorManager.stopNavigation()
+                                        } else {
+                                            NavigatorManager.pendingPlaceId?.let { placeId ->
+                                                // Actually start guidance now
+                                                NavigatorManager.startNavigation()
+                                                Log.d("Navigation", "Google maps navigation started!")
+                                            }
                                         }
+
                                     }
                                 )
                             }
@@ -212,7 +217,7 @@ class MainActivity : FragmentActivity() {
     fun PlacesSearchField(
         placesClient: PlacesClient,
         onPlaceSelected: (placeId: String) -> Unit,
-        onStartNavigation: () -> Unit
+        onTapButton: (navRunning: Boolean) -> Unit
     ) {
         var query by remember { mutableStateOf("") }
         var suggestions by remember { mutableStateOf(listOf<AutocompletePrediction>()) }
@@ -220,6 +225,8 @@ class MainActivity : FragmentActivity() {
         var selectedPlaceName by remember { mutableStateOf<String?>(null) }
         val coroutineScope = rememberCoroutineScope()
         var searchJob: Job? by remember { mutableStateOf(null) }
+
+        val navRunning by NavigatorManager.navRunning.collectAsState()
 
         Column(modifier = Modifier.padding(16.dp)) {
             TextField(
@@ -280,10 +287,10 @@ class MainActivity : FragmentActivity() {
             // Show Start Directions button if a place is selected
             selectedPlaceId?.let {
                 Button(
-                    onClick = onStartNavigation,
+                    onClick = { onTapButton(navRunning) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Start Directions to ${selectedPlaceName ?: "Selected Place"}")
+                    Text("${if (navRunning) "Stop" else "Start"} Directions to ${selectedPlaceName ?: "Selected Place"}")
                 }
             }
         }

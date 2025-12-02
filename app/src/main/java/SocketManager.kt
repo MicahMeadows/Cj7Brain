@@ -31,6 +31,7 @@ data class LatLongDTO(
 
 object SocketManager {
 
+    private var lastBatteryLevel: Int = 0
     private var socket: Socket? = null
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSub: Subscription<PlayerState>? = null
@@ -52,6 +53,8 @@ object SocketManager {
 
     var onConnected: (() -> Unit)? = null
     var onDisconnected: (() -> Unit)? = null
+
+    private var lastVolume = 0
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
@@ -85,6 +88,8 @@ object SocketManager {
             spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
                 onNewPlayerState(playerState)
             }
+            emitBatteryLevel(lastBatteryLevel)
+            emitVolume()
         }
 
         socket?.on("android_request_tile") { args ->
@@ -110,6 +115,19 @@ object SocketManager {
         _connectionState.value = false
     }
 
+    fun volumeChanged(volume: Int) {
+        lastVolume = volume
+        emitVolume()
+    }
+
+    private fun emitVolume() {
+        scope.launch {
+            if (socket?.connected() == true) {
+                socket?.emit("volume_change", lastVolume)
+            }
+        }
+    }
+
     fun broadcastTimeAndDistance(meters: Int, seconds: Int) {
         Log.d("SocketIO", "broadcasting time and distance: meters -${meters} - seconds: ${seconds}")
         scope.launch {
@@ -118,6 +136,23 @@ object SocketManager {
                     put("meters", meters)
                     put("seconds", seconds)
                 })            }
+        }
+    }
+
+    fun emitBatteryLevel(batteryLevel: Int) {
+        lastBatteryLevel = batteryLevel
+        scope.launch {
+            if (socket?.connected() == true) {
+                socket?.emit("battery_level", batteryLevel)
+            }
+        }
+    }
+
+    fun emitRouteEnd() {
+        scope.launch {
+            if (socket?.connected() == true) {
+                socket?.emit("end_route", {})
+            }
         }
     }
 

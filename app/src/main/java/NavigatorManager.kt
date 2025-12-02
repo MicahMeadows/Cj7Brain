@@ -24,6 +24,8 @@ import com.google.android.libraries.navigation.RoadSnappedLocationProvider
 import com.google.android.libraries.navigation.TermsAndConditionsCheckOption
 import com.google.android.libraries.navigation.Waypoint
 import com.micah.cj7brain.SocketManager
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.net.Socket
 
 
@@ -48,6 +50,9 @@ object NavigatorManager {
     lateinit var incomingMessenger: Messenger
     lateinit var handlerThread: HandlerThread
 
+    private val _navRunning = MutableStateFlow(false)
+    val navRunning: StateFlow<Boolean> = _navRunning
+
 
     fun setupRouteChangeListener() {
         mNavigator.addRouteChangedListener {
@@ -70,8 +75,12 @@ object NavigatorManager {
     }
 
     fun handlePageReload() {
-        emitTimeAndDistance()
-        emitRouteSegments()
+        if (_navRunning.value) {
+            emitRouteSegments()
+            emitTimeAndDistance()
+        } else {
+            SocketManager.emitRouteEnd()
+        }
     }
 
     fun setupRemainingTimeDistListener() {
@@ -106,6 +115,13 @@ object NavigatorManager {
             prepareRoute(it)
         }
         mNavigator.startGuidance()
+        _navRunning.value = true
+    }
+
+    fun stopNavigation() {
+        mNavigator.stopGuidance()
+        _navRunning.value = false
+        SocketManager.emitRouteEnd()
     }
 
     fun prepareRoute(placeId: String) {
