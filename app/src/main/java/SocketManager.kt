@@ -22,6 +22,7 @@ import com.micah.cj7brain.api.MapTilesApiClient
 import org.json.JSONObject
 import com.google.gson.Gson
 import com.micah.cj7brain.api.NavigatorManager
+import com.spotify.protocol.client.Subscription
 
 data class LatLongDTO(
     val latitude: Double,
@@ -32,6 +33,8 @@ object SocketManager {
 
     private var socket: Socket? = null
     private var spotifyAppRemote: SpotifyAppRemote? = null
+    private var playerStateSub: Subscription<PlayerState>? = null
+    private var lastAlbumImage: String? = null
 
     // Connection state
     private val _connectionState = MutableStateFlow(false)
@@ -44,6 +47,8 @@ object SocketManager {
     // Player state
     private val _playerState = MutableStateFlow<PlayerState?>(null)
     val playerState: StateFlow<PlayerState?> = _playerState
+
+    private var lastPlayerStateJson: JSONObject? = null
 
     var onConnected: (() -> Unit)? = null
     var onDisconnected: (() -> Unit)? = null
@@ -76,6 +81,10 @@ object SocketManager {
 
         socket?.on("android_reload_page") {
             NavigatorManager.handlePageReload()
+            emitLastAlbumImage()
+            spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
+                onNewPlayerState(playerState)
+            }
         }
 
         socket?.on("android_request_tile") { args ->
@@ -150,12 +159,66 @@ object SocketManager {
         }
     }
 
-    fun updateSpotifyState(playerState: PlayerState) {
+    private fun emitPlayerStateJson(playerStateJson: JSONObject) {
         scope.launch {
             if (socket?.connected() == true) {
-                socket?.emit("song_change", playerState)
+                socket?.emit("song_change", playerStateJson)
             }
         }
+    }
+
+    fun updateSpotifyState(playerState: PlayerState) {
+        Log.d("Spotify", "Song changed emitting new song data")
+        val playerStateJson = JSONObject().apply {
+
+            put("track", JSONObject().apply {
+
+                put("name", playerState.track.name)
+                put("uri", playerState.track.uri)
+                put("duration", playerState.track.duration)
+
+                put("isEpisode", playerState.track.isEpisode)
+                put("isPodcast", playerState.track.isPodcast)
+
+                put("artist", JSONObject().apply {
+                    put("name", playerState.track.artist.name)
+                    put("uri", playerState.track.artist.uri)
+                })
+
+                put("artists", playerState.track.artists.map { artist ->
+                    JSONObject().apply {
+                        put("name", artist.name)
+                        put("uri", artist.uri)
+                    }
+                })
+
+                put("album", JSONObject().apply {
+                    put("name", playerState.track.album.name)
+                    put("uri", playerState.track.album.uri)
+                })
+            })
+
+            put("isPaused", playerState.isPaused)
+            put("playbackSpeed", playerState.playbackSpeed)
+            put("playbackPosition", playerState.playbackPosition)
+
+            put("playbackOptions", JSONObject().apply {
+                put("isShuffling", playerState.playbackOptions.isShuffling)
+                put("repeatMode", playerState.playbackOptions.repeatMode)
+            })
+
+            put("playbackRestrictions", JSONObject().apply {
+                put("canSkipNext", playerState.playbackRestrictions.canSkipNext)
+                put("canSkipPrev", playerState.playbackRestrictions.canSkipPrev)
+                put("canRepeatTrack", playerState.playbackRestrictions.canRepeatTrack)
+                put("canRepeatContext", playerState.playbackRestrictions.canRepeatContext)
+                put("canToggleShuffle", playerState.playbackRestrictions.canToggleShuffle)
+            })
+        }
+
+        lastPlayerStateJson = playerStateJson
+
+        emitPlayerStateJson(playerStateJson)
     }
 
     fun bitmapToBase64(bitmap: Bitmap): String {
@@ -166,10 +229,24 @@ object SocketManager {
     }
 
     fun updateAlbumArt(image: Bitmap) {
+        val bitmapData = bitmapToBase64(image)
+        lastAlbumImage = bitmapData
+        emitAlbumImage(bitmapData)
+
+    }
+
+    fun emitLastAlbumImage() {
+        if (lastAlbumImage == null) {
+            Log.d("SocketIO", "No last album image to reload to")
+            return
+        }
+        emitAlbumImage(lastAlbumImage!!)
+    }
+
+    private fun emitAlbumImage(imageData: String) {
         scope.launch {
             if (socket?.connected() == true) {
-                val bitmapData = bitmapToBase64(image)
-                socket?.emit("album_image", bitmapData)
+                socket?.emit("album_image", imageData)
             }
         }
     }
@@ -196,19 +273,42 @@ object SocketManager {
     }
 
     /** --- Spotify --- */
-    fun setSpotifyAppRemote(appRemote: SpotifyAppRemote) {
+    fun setSpotifyAppRemote(appRemote: SpotifyAppRemote?) {
         spotifyAppRemote = appRemote
         subscribeToPlayerState()
     }
 
-    private fun subscribeToPlayerState() {
-        spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
-            _playerState.value = playerState
-            val track = playerState.track
-            if (track != null) {
-                _currentTrack.value = track
-                updateSpotifyState(playerState)
+    fun onNewPlayerState(playerState: PlayerState) {
+        _playerState.value = playerState
+        val track = playerState.track
+        if (track != null) {
+            _currentTrack.value = track
+            updateSpotifyState(playerState)
+            spotifyAppRemote?.imagesApi?.getImage(track.imageUri, Image.Dimension.X_SMALL)?.setResultCallback { bitmap ->
+                updateAlbumArt(bitmap)
             }
+        }
+    }
+
+    fun unsubscribePlayerState() {
+        _currentTrack.value = null
+        try {
+            playerStateSub?.cancel()
+        } catch (ex: Error) {
+            Log.w("Socket", "failed to unsubscribe player state")
+        }
+        playerStateSub = null
+
+    }
+
+    private fun subscribeToPlayerState() {
+        Log.d("Spotify", "subbing to player state")
+        if (playerStateSub != null) {
+            Log.d("Spotify", "Already subscribed to player state not sub again")
+            return
+        }
+        playerStateSub = spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
+            onNewPlayerState(playerState)
         }
     }
 

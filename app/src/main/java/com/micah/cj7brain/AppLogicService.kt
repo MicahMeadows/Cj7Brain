@@ -1,9 +1,11 @@
 package com.micah.cj7brain
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.os.Build
@@ -41,6 +43,21 @@ class AppLogicService : Service() {
     private val redirectUri = "your.app://callback"
     private var spotifyAppRemote: SpotifyAppRemote? = null
 
+    private val spotifyReconnectHandler = Handler(Looper.getMainLooper())
+    private val reconnectRunnable = object : Runnable {
+        override fun run() {
+            // Always try to connect if null or disconnected
+            Log.d("AppLogic", "reconnect? : ${if (spotifyAppRemote == null) "null" else "not null"}")
+
+            if (spotifyAppRemote == null) {
+                Log.d("AppLogicService", "SpotifyAppRemote is null or disconnected. Attempting reconnect...")
+                connectSpotify()
+            }
+            // Schedule next attempt in 1 minute, always
+            spotifyReconnectHandler.postDelayed(this, 60_000)
+        }
+    }
+
 
     private fun setupMapTileApiClient() {
         MapTilesApiClient.init(this, BuildConfig.API_KEY)
@@ -62,6 +79,7 @@ class AppLogicService : Service() {
         startForegroundService()
         startSocket()
         connectSpotify()
+        spotifyReconnectHandler.postDelayed(reconnectRunnable, 10_000)
 
         NavigatorManager.initializeNavigationApi(this)
 
@@ -107,6 +125,13 @@ class AppLogicService : Service() {
     }
 
     private fun connectSpotify() {
+        if (spotifyAppRemote != null) {
+            try {
+                SpotifyAppRemote.disconnect(spotifyAppRemote)
+            } catch (_: Exception) {}
+            spotifyAppRemote = null
+        }
+
         val connectionParams = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
             .showAuthView(false)
@@ -117,33 +142,24 @@ class AppLogicService : Service() {
                 Log.d("AppLogic", "Spotify app remote connected!")
                 spotifyAppRemote = appRemote
                 SocketManager.setSpotifyAppRemote(appRemote)
-                subscribeToPlayer()
+
+                spotifyReconnectHandler.removeCallbacks(reconnectRunnable)
             }
 
             override fun onFailure(throwable: Throwable) {
+                spotifyAppRemote = null
+                SocketManager.unsubscribePlayerState()
+                spotifyReconnectHandler.postDelayed(reconnectRunnable, 60_000)
                 Log.e("AppLogicService", "Spotify connection failed", throwable)
             }
         })
     }
 
-    private fun subscribeToPlayer() {
-        spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
-            val track: Track? = playerState.track
-            if (track != null) {
-                Log.d("AppLogicService", "Playing: ${track.name} by ${track.artist.name}")
-
-                SocketManager.updateSpotifyState(playerState)
-
-                spotifyAppRemote?.imagesApi?.getImage(track.imageUri, Image.Dimension.X_SMALL)?.setResultCallback { bitmap ->
-                    SocketManager.updateAlbumArt(bitmap)
-                }
-            }
-        }
-    }
 
     override fun onDestroy() {
         super.onDestroy()
         spotifyAppRemote?.let { SpotifyAppRemote.disconnect(it) }
+        spotifyReconnectHandler.removeCallbacks(reconnectRunnable)
         SocketManager.disconnect()
     }
 

@@ -3,7 +3,6 @@ package com.micah.cj7brain
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresApi
@@ -23,35 +22,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.micah.cj7brain.ui.theme.Cj7BrainTheme
-import com.spotify.protocol.types.PlayerState
-import com.spotify.protocol.types.Track
-
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.commit
 import com.google.android.libraries.navigation.SupportNavigationFragment
-
-import com.google.android.libraries.navigation.NavigationApi
-import com.google.android.libraries.navigation.TermsAndConditionsCheckOption
-
 import android.Manifest
-import android.R
-import android.annotation.SuppressLint
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.location.Location
 import android.util.Log
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import com.google.android.libraries.navigation.NavigationApi.*
-import com.google.android.libraries.navigation.Navigator
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.AutocompletePrediction
 import com.google.android.libraries.places.api.net.PlacesClient
@@ -63,24 +45,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.ui.unit.dp
-import com.google.android.libraries.navigation.CustomRoutesOptions
-import com.google.android.libraries.navigation.ListenableResultFuture
-import com.google.android.libraries.navigation.RoadSnappedLocationProvider
-import com.google.android.libraries.navigation.RoutingOptions
-import com.google.android.libraries.navigation.SimulationOptions
-import com.google.android.libraries.navigation.Waypoint
 import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.jvm.java
 
-import androidx.compose.runtime.*
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.micah.cj7brain.api.MapTilesApiClient
 import com.micah.cj7brain.api.NavigatorManager
-import com.micah.cj7brain.api.fromLatLngToTileCoord
 import kotlinx.coroutines.flow.map
 
 class MainActivity : FragmentActivity() {
