@@ -53,18 +53,27 @@ object SocketManager {
 
     var onConnected: (() -> Unit)? = null
     var onDisconnected: (() -> Unit)? = null
+    // Raise (true) / lower (false) system media volume — wired to AudioManager
+    // by AppLogicService, which owns the AudioManager instance.
+    var onVolumeChange: ((up: Boolean) -> Unit)? = null
 
     private var lastVolume = 0
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
+
+    fun setRaspberryPiIp(ip: String) {
+        connect(ip);
+    }
+
     /** --- SocketIO --- */
-    fun connect() {
+    fun connect(ip: String) {
         if (socket?.connected() == true) return
 
         val opts = IO.Options()
-        socket = IO.socket("http://${BuildConfig.BACKEND_IP}:8089", opts)
-//        socket = IO.socket("http://raspberrypi.local:5000", opts)
+//        socket = IO.socket("http://${BuildConfig.BACKEND_IP}:8089", opts)
+        socket = IO.socket("http://${ip}:8089", opts)
+
 
         socket?.on(Socket.EVENT_CONNECT) {
             Log.d("SocketIO", "Connected")
@@ -78,8 +87,36 @@ object SocketManager {
             _connectionState.value = false
             onDisconnected?.invoke()
         }
-        socket?.on("phone_skip_song") {
+        // Media control events broadcast by the server — triggered by the web UI
+        // buttons or the Pi's physical GPIO buttons. Drive Spotify / system volume.
+        socket?.on("skip_song") {
             spotifyAppRemote?.playerApi?.skipNext()
+        }
+
+        socket?.on("previous_song") {
+            spotifyAppRemote?.playerApi?.skipPrevious()
+        }
+
+        socket?.on("play_pause") {
+            playPause()
+        }
+
+        socket?.on("volume_up") {
+            onVolumeChange?.invoke(true)
+        }
+
+        socket?.on("volume_down") {
+            onVolumeChange?.invoke(false)
+        }
+
+        // Search & navigate: search for the given query, take the nearest
+        // result, and start directions immediately (e.g. the Taco Bell button).
+        socket?.on("search_and_navigate") { args ->
+            val query = (args.getOrNull(0) as? JSONObject)?.optString("query")
+            Log.d("SocketIO", "Received search_and_navigate: query=$query")
+            if (!query.isNullOrBlank()) {
+                PlaceSearchNavigator.searchAndNavigate(query)
+            }
         }
 
         socket?.on("android_reload_page") {

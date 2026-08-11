@@ -79,6 +79,7 @@ class MainActivity : FragmentActivity() {
     private fun initializePlacesApi() {
         Places.initializeWithNewPlacesApiEnabled(applicationContext, BuildConfig.API_KEY)
         placesClient = Places.createClient(this)
+        placesClient?.let { PlaceSearchNavigator.init(it) }
     }
 
 
@@ -93,6 +94,11 @@ class MainActivity : FragmentActivity() {
         requestLocationPermissions()
 
         initializePlacesApi()
+
+        // Navigation SDK must be initialized from an Activity (its terms-check
+        // overload requires one). The Navigator becomes ready asynchronously via
+        // onNavigatorReady; the service is already started above for nav updates.
+        NavigatorManager.initializeNavigationApi(this)
 
         setContent {
             Cj7BrainTheme {

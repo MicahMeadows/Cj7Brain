@@ -42,7 +42,19 @@ import kotlinx.coroutines.launch
 import java.net.Socket
 import kotlin.concurrent.thread
 
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicBoolean
+import android.net.wifi.WifiManager
+
+
 class AppLogicService : Service() {
+
+    private var udpSocket: DatagramSocket? = null
+    private val udpRunning = AtomicBoolean(false)
+    private var multicastLock: WifiManager.MulticastLock? = null
+
 
     private val clientId = "60c84d324a05431ca667d118f68a9cfb"
     private val redirectUri = "your.app://callback"
@@ -103,6 +115,16 @@ class AppLogicService : Service() {
     private fun setupVolumeReceiver() {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+        // Let physical/web volume buttons adjust the system media volume. The
+        // resulting VOLUME_CHANGED_ACTION below re-emits the new level to clients.
+        SocketManager.onVolumeChange = { up ->
+            audioManager.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                AudioManager.FLAG_SHOW_UI
+            )
+        }
+
         // Initial volume
         val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         println("Current volume: $currentVolume")
@@ -124,10 +146,68 @@ class AppLogicService : Service() {
         registerReceiver(volumeReceiver, filter)
     }
 
+    private fun startUdpDiscoveryListener() {
+        udpRunning.set(true)
+
+        // Android silently drops incoming broadcast/multicast UDP unless a
+        // MulticastLock is held — without it the RPI_DISCOVERY packets never
+        // reach the socket (this is why discovery fails, esp. on a phone hotspot).
+        try {
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            multicastLock = wifi.createMulticastLock("cj7-discovery").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.d("UDP", "MulticastLock acquired")
+        } catch (e: Exception) {
+            Log.e("UDP", "Failed to acquire MulticastLock", e)
+        }
+
+        thread(name = "UDP-Discovery") {
+            try {
+                udpSocket = DatagramSocket(50000, InetAddress.getByName("0.0.0.0"))
+                udpSocket?.broadcast = true
+
+                val buffer = ByteArray(512)
+
+                Log.d("UDP", "UDP discovery listener started on port 50000")
+
+                while (udpRunning.get()) {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    udpSocket?.receive(packet)
+
+                    val message = String(packet.data, 0, packet.length)
+
+                    if (message.startsWith("RPI_DISCOVERY|")) {
+                        val ip = message.substringAfter("|")
+
+                        Log.d("UDP", "Discovered Raspberry Pi at $ip")
+
+                        // 🔗 Hook into your existing app logic
+                        SocketManager.setRaspberryPiIp(ip)
+                    }
+                }
+            } catch (e: Exception) {
+                if (udpRunning.get()) {
+                    Log.e("UDP", "UDP listener error", e)
+                }
+            } finally {
+                udpSocket?.close()
+                udpSocket = null
+                try { multicastLock?.release() } catch (_: Exception) {}
+                multicastLock = null
+            }
+        }
+    }
+
+
     override fun onCreate() {
         super.onCreate()
         startForegroundService()
-        startSocket()
+        // startSocket()
+        // SocketManager.setRaspberryPiIp(BuildConfig.BACKEND_IP);
+
+        startUdpDiscoveryListener() // 👈 ADD THIS
 
         setupVolumeReceiver()
         connectSpotify()
@@ -137,7 +217,8 @@ class AppLogicService : Service() {
         spotifyReconnectHandler.postDelayed(reconnectRunnable, 60_000)
         batteryCheckHandler.postDelayed(batteryCheckRunnable, 60_000)
 
-        NavigatorManager.initializeNavigationApi(this)
+        // Navigation is initialized from MainAct qivity — the Navigation SDK's
+        // terms-check overload requires an Activity, which a Service doesn't have.
 
         setupMapTileApiClient()
 
@@ -174,11 +255,11 @@ class AppLogicService : Service() {
         return NavigatorManager.incomingMessenger.binder
     }
 
-    private fun startSocket() {
-        // Start your SocketManager here
-        SocketManager.connect()
-        Log.d("AppLogicService", "Socket connected")
-    }
+//    private fun startSocket() {
+//        // Start your SocketManager here
+//        SocketManager.connect()
+//        Log.d("AppLogicService", "Socket connected")
+//    }
 
     private fun connectSpotify() {
         if (spotifyAppRemote != null) {
@@ -214,6 +295,10 @@ class AppLogicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        udpRunning.set(false)
+        udpSocket?.close()
+        try { multicastLock?.release() } catch (_: Exception) {}
+        multicastLock = null
         spotifyAppRemote?.let { SpotifyAppRemote.disconnect(it) }
         spotifyReconnectHandler.removeCallbacks(reconnectRunnable)
         SocketManager.disconnect()
